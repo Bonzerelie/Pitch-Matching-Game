@@ -144,6 +144,22 @@
     return voice;
   }
 
+   let lastHeight = 0;
+
+const ro = new ResizeObserver(entries => {
+  for (const entry of entries) {
+    const height = Math.ceil(entry.contentRect.height);
+
+    if (height !== lastHeight) {
+      parent.postMessage({ iframeHeight: height }, "*");
+      lastHeight = height;
+    }
+  }
+});
+
+// Observe the root layout element
+ro.observe(document.documentElement);
+
   function gameModeLabel() {
     switch (keyboardRangeSel.value) {
       case "1oct-c4": return "1 octave";
