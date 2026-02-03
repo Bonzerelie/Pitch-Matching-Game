@@ -252,3 +252,38 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none}
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x;
 }
+
+/* Score card: compact grid layout */
+.scoreGrid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
+  gap:8px 10px;
+}
+
+.scoreItem{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  gap:10px;
+  padding:8px 10px;
+  border:1px solid rgba(0,0,0,.08);
+  border-radius:12px;
+  background:#fff;
+}
+
+.scoreK{
+  font-size:12px;
+  opacity:.75;
+  font-weight:800;
+  letter-spacing:.2px;
+}
+
+.scoreV{
+  font-weight:900;
+  font-variant-numeric:tabular-nums;
+}
+
+@media (max-width:420px){
+  .scoreItem{flex-direction:column; align-items:flex-start;}
+}
+
