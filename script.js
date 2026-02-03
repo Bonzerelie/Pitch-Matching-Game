@@ -311,14 +311,23 @@ window.addEventListener("orientationchange", () => {
     return Math.max(score.longestStored, score.streak);
   }
 
-  function renderScore() {
-    scoreOut.innerHTML =
-      `Questions asked: <strong>${score.asked}</strong><br>` +
-      `Answers correct: <strong>${score.correct}</strong><br>` +
-      `Correct in a row: <strong>${score.streak}</strong><br>` +
-      `Longest correct streak: <strong>${displayLongest()}</strong><br>` +
-      `Percentage correct: <strong>${scorePercent()}%</strong>`;
-  }
+ function renderScore() {
+  const items = [
+    ["Questions asked", score.asked],
+    ["Answers correct", score.correct],
+    ["Correct in a row", score.streak],
+    ["Longest correct streak", displayLongest()],
+    ["Percentage correct", `${scorePercent()}%`],
+  ];
+
+  scoreOut.innerHTML =
+    `<div class="scoreGrid">` +
+    items.map(([k, v]) =>
+      `<div class="scoreItem"><span class="scoreK">${k}</span><span class="scoreV">${v}</span></div>`
+    ).join("") +
+    `</div>`;
+}
+
 
   function setResult(html) { feedbackOut.innerHTML = html || ""; }
 
