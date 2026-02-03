@@ -192,6 +192,8 @@ window.addEventListener("orientationchange", () => {
 });
 
    function enableScrollForwardingToParent() {
+  const SCROLL_GAIN = 1.35; // increase if still feels slow (try 1.2–1.8)
+
   const isVerticallyScrollable = () =>
     document.documentElement.scrollHeight > window.innerHeight + 2;
 
@@ -210,69 +212,78 @@ window.addEventListener("orientationchange", () => {
   let lastY = 0;
   let lockedMode = null; // "x" | "y" | null
 
-  window.addEventListener(
-    "touchstart",
-    (e) => {
-      if (!e.touches || e.touches.length !== 1) return;
-      const t = e.target;
-      lockedMode = null;
+  let lastMoveTs = 0;
+  let vY = 0; // px/ms (positive when finger moves down)
 
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      lastY = startY;
+  window.addEventListener("touchstart", (e) => {
+    if (!e.touches || e.touches.length !== 1) return;
 
-      // If user starts on controls, let normal tap/drag behavior occur.
-      if (isInteractiveTarget(t)) lockedMode = "x";
-      // If user starts on piano strip, prefer horizontal behavior.
-      if (isInPianoStrip(t)) lockedMode = "x";
-    },
-    { passive: true }
-  );
+    const t = e.target;
+    lockedMode = null;
 
-  window.addEventListener(
-    "touchmove",
-    (e) => {
-      if (!e.touches || e.touches.length !== 1) return;
-      if (isVerticallyScrollable()) return; // if iframe needs its own vertical scroll, don't hijack it
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    lastY = startY;
 
-      const x = e.touches[0].clientX;
-      const y = e.touches[0].clientY;
-      const dx = x - startX;
-      const dy = y - startY;
+    lastMoveTs = e.timeStamp || performance.now();
+    vY = 0;
 
-      if (!lockedMode) {
-        // Lock once we’re sure which direction the gesture is
-        if (Math.abs(dy) > Math.abs(dx) + 4) lockedMode = "y";
-        else if (Math.abs(dx) > Math.abs(dy) + 4) lockedMode = "x";
-        else return;
-      }
+    if (isInteractiveTarget(t)) lockedMode = "x";
+    if (isInPianoStrip(t)) lockedMode = "x";
+  }, { passive: true });
 
-      if (lockedMode !== "y") return;
+  window.addEventListener("touchmove", (e) => {
+    if (!e.touches || e.touches.length !== 1) return;
+    if (isVerticallyScrollable()) return;
 
-      // Forward incremental delta to parent
-      const step = y - lastY;
-      lastY = y;
+    const x = e.touches[0].clientX;
+    const y = e.touches[0].clientY;
 
-      // Prevent the iframe from “eating” the vertical drag
-      e.preventDefault();
-      parent.postMessage({ scrollBy: step }, "*");
-    },
-    { passive: false } // required for preventDefault on iOS
-  );
+    const dx = x - startX;
+    const dy = y - startY;
 
-  window.addEventListener(
-    "wheel",
-    (e) => {
-      if (isVerticallyScrollable()) return;
-      parent.postMessage({ scrollBy: e.deltaY }, "*");
-    },
-    { passive: true }
-  );
+    if (!lockedMode) {
+      if (Math.abs(dy) > Math.abs(dx) + 4) lockedMode = "y";
+      else if (Math.abs(dx) > Math.abs(dy) + 4) lockedMode = "x";
+      else return;
+    }
+    if (lockedMode !== "y") return;
+
+    const nowTs = e.timeStamp || performance.now();
+    const dt = Math.max(8, nowTs - lastMoveTs); // ms (avoid crazy spikes)
+    lastMoveTs = nowTs;
+
+    const step = (y - lastY) * SCROLL_GAIN;
+    lastY = y;
+
+    // velocity smoothing
+    const instV = step / dt; // px/ms
+    vY = vY * 0.75 + instV * 0.25;
+
+    e.preventDefault();
+    parent.postMessage({ scrollBy: step }, "*");
+  }, { passive: false });
+
+  function endGesture() {
+    if (lockedMode === "y" && Math.abs(vY) > 0.05) {
+      // cap fling to avoid wild launches
+      const capped = Math.max(-2.5, Math.min(2.5, vY));
+      parent.postMessage({ scrollFling: capped }, "*");
+    }
+    lockedMode = null;
+    vY = 0;
+  }
+
+  window.addEventListener("touchend", endGesture, { passive: true });
+  window.addEventListener("touchcancel", endGesture, { passive: true });
+
+  window.addEventListener("wheel", (e) => {
+    if (isVerticallyScrollable()) return;
+    parent.postMessage({ scrollBy: e.deltaY }, "*");
+  }, { passive: true });
 }
 
 enableScrollForwardingToParent();
-
-
 
   function stopAllNotes(fadeSec = STOP_FADE_SEC) {
     const ctx = ensureAudioGraph();
