@@ -245,3 +245,10 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none}
   width: 100%;
   padding: 0px;
 }
+
+.mount{
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+}
