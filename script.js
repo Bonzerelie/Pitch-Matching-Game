@@ -192,7 +192,7 @@ window.addEventListener("orientationchange", () => {
 });
 
    function enableScrollForwardingToParent() {
-  const SCROLL_GAIN = 1.35; // increase if still feels slow (try 1.2–1.8)
+  const SCROLL_GAIN = 1.8; // increase if still feels slow (try 1.2–1.8)
 
   const isVerticallyScrollable = () =>
     document.documentElement.scrollHeight > window.innerHeight + 2;
