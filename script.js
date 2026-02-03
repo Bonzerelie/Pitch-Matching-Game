@@ -191,6 +191,88 @@ window.addEventListener("orientationchange", () => {
   setTimeout(postHeightNow, 500);
 });
 
+   function enableScrollForwardingToParent() {
+  const isVerticallyScrollable = () =>
+    document.documentElement.scrollHeight > window.innerHeight + 2;
+
+  const isInteractiveTarget = (t) => {
+    if (!(t instanceof Element)) return false;
+    return !!t.closest("button, a, input, select, textarea, label");
+  };
+
+  const isInPianoStrip = (t) => {
+    if (!(t instanceof Element)) return false;
+    return !!t.closest("#mount, .mount, svg, .key");
+  };
+
+  let startX = 0;
+  let startY = 0;
+  let lastY = 0;
+  let lockedMode = null; // "x" | "y" | null
+
+  window.addEventListener(
+    "touchstart",
+    (e) => {
+      if (!e.touches || e.touches.length !== 1) return;
+      const t = e.target;
+      lockedMode = null;
+
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      lastY = startY;
+
+      // If user starts on controls, let normal tap/drag behavior occur.
+      if (isInteractiveTarget(t)) lockedMode = "x";
+      // If user starts on piano strip, prefer horizontal behavior.
+      if (isInPianoStrip(t)) lockedMode = "x";
+    },
+    { passive: true }
+  );
+
+  window.addEventListener(
+    "touchmove",
+    (e) => {
+      if (!e.touches || e.touches.length !== 1) return;
+      if (isVerticallyScrollable()) return; // if iframe needs its own vertical scroll, don't hijack it
+
+      const x = e.touches[0].clientX;
+      const y = e.touches[0].clientY;
+      const dx = x - startX;
+      const dy = y - startY;
+
+      if (!lockedMode) {
+        // Lock once we’re sure which direction the gesture is
+        if (Math.abs(dy) > Math.abs(dx) + 4) lockedMode = "y";
+        else if (Math.abs(dx) > Math.abs(dy) + 4) lockedMode = "x";
+        else return;
+      }
+
+      if (lockedMode !== "y") return;
+
+      // Forward incremental delta to parent
+      const step = y - lastY;
+      lastY = y;
+
+      // Prevent the iframe from “eating” the vertical drag
+      e.preventDefault();
+      parent.postMessage({ scrollBy: step }, "*");
+    },
+    { passive: false } // required for preventDefault on iOS
+  );
+
+  window.addEventListener(
+    "wheel",
+    (e) => {
+      if (isVerticallyScrollable()) return;
+      parent.postMessage({ scrollBy: e.deltaY }, "*");
+    },
+    { passive: true }
+  );
+}
+
+enableScrollForwardingToParent();
+
+
 
   function stopAllNotes(fadeSec = STOP_FADE_SEC) {
     const ctx = ensureAudioGraph();
