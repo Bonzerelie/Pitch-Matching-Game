@@ -9,18 +9,18 @@
 <body>
   <div class="app">
     <header class="hero">
-      <h1 class="app-title">Pitch Matching Game</h1>
-      <h1 class="app-title-smaller">Instructions:</h1>
+      <h1 class="app-title">Match The Pitch! 🎶</h1>
+      <h1 class="app-title-smaller"></h1>
       <p class="app-subtitle">
         Your job is to identify the note being played! Click <strong>Begin Game</strong> and you will hear a note, then try and find it on the piano below.
-        <br>Select a key to highlight it, then press <strong>Submit Answer</strong> (or press the <strong>Space Bar</strong>).
+        <br>Select a key to highlight it, then press <strong>Submit Answer</strong> (or press the <strong>Space Bar</strong>). Press 'r' to replay the note.
       </p>
     </header>
 
     <section class="controlsPanel controlsPanelActions" aria-label="actions">
       <div class="control">
         <div class="controlHeader">
-          <div class="controlHeaderTitle">Actions</div>
+          <div class="controlHeaderTitle"></div>
         </div>
 
         <div class="actionsRow">
@@ -51,20 +51,14 @@
 
     <section class="analysis" aria-label="feedback">
       <div class="analysisGrid feedbackGridPitch">
-        <div class="analysisCard">
-          <div class="analysisLabel">Result</div>
-          <div class="analysisBody" id="feedbackOut">Press <strong>Begin Game</strong> to start.</div>
-        </div>
-
-        <div class="analysisCard">
+<div class="analysisCard">
           <div class="analysisLabel">Score Card</div>
           <div class="analysisBody scoreBody" id="scoreOut">—</div>
         </div>
       </div>
     </section>
 
-    <p class="app-subtitle-footer"> (You can use the <strong>r</strong> key to replay the note and <strong>spacebar</strong> to submit your answer!)</p>
-
+    <div class="feedbackLine" id="feedbackOut" aria-live="polite">Press <strong>Begin Game</strong> to start.</div>
 
     <section class="stage" aria-label="piano keyboard">
       <div id="mount" class="mount"></div>
