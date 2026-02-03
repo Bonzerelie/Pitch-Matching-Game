@@ -169,7 +169,28 @@ ro.observe(document.documentElement);
       default: return "Custom";
     }
   }
-  
+
+   function postHeightNow() {
+  try {
+    const h = Math.max(
+      document.documentElement.scrollHeight,
+      document.body ? document.body.scrollHeight : 0
+    );
+    parent.postMessage({ iframeHeight: h }, "*");
+  } catch {}
+}
+
+window.addEventListener("load", () => {
+  postHeightNow();
+  setTimeout(postHeightNow, 250);
+  setTimeout(postHeightNow, 1000);
+});
+
+window.addEventListener("orientationchange", () => {
+  setTimeout(postHeightNow, 100);
+  setTimeout(postHeightNow, 500);
+});
+
 
   function stopAllNotes(fadeSec = STOP_FADE_SEC) {
     const ctx = ensureAudioGraph();
