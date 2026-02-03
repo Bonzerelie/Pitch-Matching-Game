@@ -191,45 +191,39 @@ window.addEventListener("orientationchange", () => {
   setTimeout(postHeightNow, 500);
 });
 
-   function enableScrollForwardingToParent() {
-  const SCROLL_GAIN = 1.8; // increase if still feels slow (try 1.2–1.8)
+  function enableScrollForwardingToParent() {
+  const SCROLL_GAIN = 2.4; // start here; now it should feel normal (try 2.0–3.0)
 
   const isVerticallyScrollable = () =>
     document.documentElement.scrollHeight > window.innerHeight + 2;
 
-  const isInteractiveTarget = (t) => {
-    if (!(t instanceof Element)) return false;
-    return !!t.closest("button, a, input, select, textarea, label");
-  };
+  const isInteractiveTarget = (t) =>
+    t instanceof Element && !!t.closest("button, a, input, select, textarea, label");
 
-  const isInPianoStrip = (t) => {
-    if (!(t instanceof Element)) return false;
-    return !!t.closest("#mount, .mount, svg, .key");
-  };
+  const isInPianoStrip = (t) =>
+    t instanceof Element && !!t.closest("#mount, .mount, svg, .key");
 
   let startX = 0;
   let startY = 0;
   let lastY = 0;
-  let lockedMode = null; // "x" | "y" | null
+  let lockedMode = null;
 
   let lastMoveTs = 0;
-  let vY = 0; // px/ms (positive when finger moves down)
+  let vScrollTop = 0; // px/ms in scrollTop coordinates
 
   window.addEventListener("touchstart", (e) => {
     if (!e.touches || e.touches.length !== 1) return;
-
     const t = e.target;
-    lockedMode = null;
 
+    lockedMode = null;
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
     lastY = startY;
 
     lastMoveTs = e.timeStamp || performance.now();
-    vY = 0;
+    vScrollTop = 0;
 
-    if (isInteractiveTarget(t)) lockedMode = "x";
-    if (isInPianoStrip(t)) lockedMode = "x";
+    if (isInteractiveTarget(t) || isInPianoStrip(t)) lockedMode = "x";
   }, { passive: true });
 
   window.addEventListener("touchmove", (e) => {
@@ -250,28 +244,30 @@ window.addEventListener("orientationchange", () => {
     if (lockedMode !== "y") return;
 
     const nowTs = e.timeStamp || performance.now();
-    const dt = Math.max(8, nowTs - lastMoveTs); // ms (avoid crazy spikes)
+    const dt = Math.max(8, nowTs - lastMoveTs);
     lastMoveTs = nowTs;
 
-    const step = (y - lastY) * SCROLL_GAIN;
+    const fingerStep = (y - lastY) * SCROLL_GAIN;
     lastY = y;
 
-    // velocity smoothing
-    const instV = step / dt; // px/ms
-    vY = vY * 0.75 + instV * 0.25;
+    // Convert finger movement -> scrollTop delta (positive scrollTop means scroll down)
+    const scrollTopDelta = -fingerStep;
+
+    // velocity in scrollTop coords
+    const instV = scrollTopDelta / dt; // px/ms
+    vScrollTop = vScrollTop * 0.75 + instV * 0.25;
 
     e.preventDefault();
-    parent.postMessage({ scrollBy: step }, "*");
+    parent.postMessage({ scrollTopDelta }, "*");
   }, { passive: false });
 
   function endGesture() {
-    if (lockedMode === "y" && Math.abs(vY) > 0.05) {
-      // cap fling to avoid wild launches
-      const capped = Math.max(-2.5, Math.min(2.5, vY));
-      parent.postMessage({ scrollFling: capped }, "*");
+    if (lockedMode === "y" && Math.abs(vScrollTop) > 0.05) {
+      const capped = Math.max(-2.5, Math.min(2.5, vScrollTop));
+      parent.postMessage({ scrollTopVelocity: capped }, "*");
     }
     lockedMode = null;
-    vY = 0;
+    vScrollTop = 0;
   }
 
   window.addEventListener("touchend", endGesture, { passive: true });
@@ -279,11 +275,12 @@ window.addEventListener("orientationchange", () => {
 
   window.addEventListener("wheel", (e) => {
     if (isVerticallyScrollable()) return;
-    parent.postMessage({ scrollBy: e.deltaY }, "*");
+    parent.postMessage({ scrollTopDelta: e.deltaY }, "*"); // NOT inverted
   }, { passive: true });
 }
 
 enableScrollForwardingToParent();
+
 
   function stopAllNotes(fadeSec = STOP_FADE_SEC) {
     const ctx = ensureAudioGraph();
