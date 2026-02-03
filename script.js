@@ -192,7 +192,7 @@ window.addEventListener("orientationchange", () => {
 });
 
   function enableScrollForwardingToParent() {
-  const SCROLL_GAIN = 2.4; // start here; now it should feel normal (try 2.0–3.0)
+  const SCROLL_GAIN = 6.0; // start here; now it should feel normal (try 2.0–3.0)
 
   const isVerticallyScrollable = () =>
     document.documentElement.scrollHeight > window.innerHeight + 2;
@@ -263,7 +263,7 @@ window.addEventListener("orientationchange", () => {
 
   function endGesture() {
     if (lockedMode === "y" && Math.abs(vScrollTop) > 0.05) {
-      const capped = Math.max(-2.5, Math.min(2.5, vScrollTop));
+      const capped = Math.max(-5.5, Math.min(5.5, vScrollTop));
       parent.postMessage({ scrollTopVelocity: capped }, "*");
     }
     lockedMode = null;
