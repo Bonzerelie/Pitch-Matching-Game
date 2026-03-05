@@ -1,12 +1,20 @@
 /* /script.js
    Pitch Matching Test (single-note)
-   - Requires a user gesture to start audio (Begin Game button).
+   - Squarespace iframe sizing + scroll forwarding preserved
 */
 (() => {
   "use strict";
 
   const AUDIO_DIR = "audio";
+  const LS_KEY_NAME = "pm_player_name";
 
+  // UI Sounds
+  const UI_SND_SELECT = "select1.mp3";
+  const UI_SND_BACK = "back1.mp3";
+  const UI_SND_CORRECT = "correct1.mp3";
+  const UI_SND_INCORRECT = "incorrect1.mp3";
+
+  // Keyboard rendering
   const OUTER_H = 320;
   const BORDER_PX = 19;
 
@@ -18,62 +26,79 @@
   const RADIUS = 18;
   const WHITE_CORNER_R = 10;
 
-  const PRESELECT_COLOR_DEFAULT = "#6699ff";
-  const CORRECT_COLOR = "#34c759";
-  const WRONG_COLOR = "#ff6b6b";
+  // Fixed colors for the standardized series Look
+  const HIGHLIGHT_COLOR = "#4da3ff";
+  const CORRECT_COLOR = "#1f9d55";
+  const WRONG_COLOR = "#d13b3b";
 
-  const LIMITER_THRESHOLD_DB = -6;
   const STOP_FADE_SEC = 0.04;
 
   const PC_TO_STEM = {
-    0: "c",
-    1: "csharp",
-    2: "d",
-    3: "dsharp",
-    4: "e",
-    5: "f",
-    6: "fsharp",
-    7: "g",
-    8: "gsharp",
-    9: "a",
-    10: "asharp",
-    11: "b",
+    0: "c", 1: "csharp", 2: "d", 3: "dsharp", 4: "e", 5: "f",
+    6: "fsharp", 7: "g", 8: "gsharp", 9: "a", 10: "asharp", 11: "b",
   };
 
   const PC_NAMES_SHARP = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
   const PC_NAMES_FLAT  = ["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
 
   const KEYBOARD_PRESETS = {
-    "4oct-c2": { startOctave: 2, octaves: 4, endOnFinalC: true },
-    "3oct-c3": { startOctave: 3, octaves: 3, endOnFinalC: true },
-    "2oct-c3": { startOctave: 3, octaves: 2, endOnFinalC: true },
-    "1oct-c4": { startOctave: 4, octaves: 1, endOnFinalC: true },
+    "4oct-c2": { label: "4 octaves", startOctave: 2, octaves: 4, endOnFinalC: true },
+    "3oct-c3": { label: "3 octaves", startOctave: 3, octaves: 3, endOnFinalC: true },
+    "2oct-c3": { label: "2 octaves", startOctave: 3, octaves: 2, endOnFinalC: true },
+    "1oct-c4": { label: "1 octave", startOctave: 4, octaves: 1, endOnFinalC: true },
   };
 
   const $ = (id) => document.getElementById(id);
 
   const mount = $("mount");
-  const keyboardRangeSel = $("keyboardRange");
-  const highlightColorInput = $("highlightColor");
+
+  const titleWrap = $("titleWrap");
+  const titleImgWide = $("titleImgWide");
+  const titleImgWrapped = $("titleImgWrapped");
+
   const beginBtn = $("beginBtn");
   const replayBtn = $("replayBtn");
   const submitBtn = $("submitBtn");
   const nextBtn = $("nextBtn");
+
+  const settingsBtn = $("settingsBtn");
+  const infoBtn = $("infoBtn");
   const downloadScoreBtn = $("downloadScoreBtn");
 
   const actionHint = $("actionHint");
   const feedbackOut = $("feedbackOut");
   const scoreOut = $("scoreOut");
 
-  const streakModal = $("streakModal");
-  const modalTitle = $("modalTitle");
-  const modalBody = $("modalBody");
-  const modalClose = $("modalClose");
-  const modalDownload = $("modalDownload");
+  // Modals
+  const introModal = $("introModal");
+  const introBeginBtn = $("introBeginBtn");
+  const introRangeSelect = $("introRangeSelect");
 
-  // Safety: if HTML/JS mismatch, fail loudly in UI.
-  if (!mount || !keyboardRangeSel || !highlightColorInput || !beginBtn || !replayBtn || !submitBtn || !nextBtn || !downloadScoreBtn || !feedbackOut || !scoreOut) {
-    const msg = "UI mismatch: some required elements are missing. Make sure index.html matches script.js (beginBtn, keyboardRange, highlightColor, replayBtn, submitBtn, downloadScoreBtn, feedbackOut, scoreOut, mount).";
+  const settingsModal = $("settingsModal");
+  const settingsRangeSelect = $("settingsRangeSelect");
+  const settingsRestartBtn = $("settingsRestartBtn");
+  const settingsCancelBtn = $("settingsCancelBtn");
+
+  const infoModal = $("infoModal");
+  const infoClose = $("infoClose");
+
+  const scoreModal = $("scoreModal");
+  const scoreModalContinueBtn = $("scoreModalContinueBtn");
+  const modalDownloadScorecardBtn = $("modalDownloadScorecardBtn");
+
+  const streakModal = $("streakModal");
+  const modalTitleRecord = $("modalTitleRecord");
+  const modalBodyRecord = $("modalBodyRecord");
+  const modalCloseRecord = $("modalCloseRecord");
+  const modalDownloadRecord = $("modalDownloadRecord");
+
+  const scoreMeta = $("scoreMeta");
+  const modalScoreMeta = $("modalScoreMeta");
+  const playerNameInput = $("playerNameInput");
+  const modalPlayerNameInput = $("modalPlayerNameInput");
+
+  if (!mount || !beginBtn || !replayBtn || !submitBtn || !nextBtn) {
+    const msg = "UI mismatch: some required elements are missing.";
     if (feedbackOut) feedbackOut.textContent = msg;
     else alert(msg);
     return;
@@ -87,43 +112,170 @@
   let targetPitch = null;
   let pickedPitch = null;
   let lastTargetPitch = null;
-
   let awaitingNext = false;
-
-  let highlightColor = PRESELECT_COLOR_DEFAULT;
+  let currentRangeMode = "2oct-c3"; 
 
   const score = { asked: 0, correct: 0, streak: 0, longestStored: 0 };
 
+  // ---------- dynamic title resizing ----------
+  function setTitleMode(mode) {
+    if (!titleWrap) return;
+    titleWrap.classList.toggle("titleModeWide", mode === "wide");
+    titleWrap.classList.toggle("titleModeWrapped", mode === "wrapped");
+  }
+  function computeDesiredWideWidthPx() {
+    const cssMax = 600;
+    const natural = titleImgWide?.naturalWidth || cssMax;
+    return Math.min(cssMax, natural);
+  }
+  function updateTitleForWidth() {
+    if (!titleWrap || !titleImgWide || !titleImgWrapped) return;
+    const available = Math.floor(titleWrap.getBoundingClientRect().width);
+    const desiredWide = computeDesiredWideWidthPx();
+    if (available + 1 < desiredWide) setTitleMode("wrapped");
+    else setTitleMode("wide");
+  }
+
+  // ---------- iframe sizing + scroll forwarding ----------
+  let lastHeight = 0;
+  const ro = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const height = Math.ceil(entry.contentRect.height);
+      if (height !== lastHeight) {
+        parent.postMessage({ iframeHeight: height }, "*");
+        lastHeight = height;
+      }
+    }
+  });
+  ro.observe(document.documentElement);
+
+  function postHeightNow() {
+    try {
+      const h = Math.max(
+        document.documentElement.scrollHeight,
+        document.body ? document.body.scrollHeight : 0
+      );
+      parent.postMessage({ iframeHeight: h }, "*");
+    } catch {}
+  }
+  window.addEventListener("load", () => {
+    postHeightNow();
+    setTimeout(postHeightNow, 250);
+    setTimeout(postHeightNow, 1000);
+  });
+  window.addEventListener("orientationchange", () => {
+    setTimeout(postHeightNow, 100);
+    setTimeout(postHeightNow, 500);
+  });
+
+  function enableScrollForwardingToParent() {
+    const SCROLL_GAIN = 6.0;
+
+    const isVerticallyScrollable = () =>
+      document.documentElement.scrollHeight > window.innerHeight + 2;
+
+    const isInteractiveTarget = (t) =>
+      t instanceof Element && !!t.closest("button, a, input, select, textarea, label");
+
+    const isInPianoStrip = (t) =>
+      t instanceof Element && !!t.closest("#mount, .mount, svg, .key");
+
+    let startX = 0;
+    let startY = 0;
+    let lastY = 0;
+    let lockedMode = null;
+
+    let lastMoveTs = 0;
+    let vScrollTop = 0;
+
+    window.addEventListener("touchstart", (e) => {
+      if (!e.touches || e.touches.length !== 1) return;
+      const t = e.target;
+      lockedMode = null;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      lastY = startY;
+
+      lastMoveTs = e.timeStamp || performance.now();
+      vScrollTop = 0;
+
+      if (isInteractiveTarget(t) || isInPianoStrip(t)) lockedMode = "x";
+    }, { passive: true });
+
+    window.addEventListener("touchmove", (e) => {
+      if (!e.touches || e.touches.length !== 1) return;
+      if (isVerticallyScrollable()) return;
+
+      const x = e.touches[0].clientX;
+      const y = e.touches[0].clientY;
+      const dx = x - startX;
+      const dy = y - startY;
+
+      if (!lockedMode) {
+        if (Math.abs(dy) > Math.abs(dx) + 4) lockedMode = "y";
+        else if (Math.abs(dx) > Math.abs(dy) + 4) lockedMode = "x";
+        else return;
+      }
+      if (lockedMode !== "y") return;
+
+      const nowTs = e.timeStamp || performance.now();
+      const dt = Math.max(8, nowTs - lastMoveTs);
+      lastMoveTs = nowTs;
+
+      const fingerStep = (y - lastY) * SCROLL_GAIN;
+      lastY = y;
+      const scrollTopDelta = -fingerStep;
+      const instV = scrollTopDelta / dt;
+      vScrollTop = vScrollTop * 0.75 + instV * 0.25;
+
+      e.preventDefault();
+      parent.postMessage({ scrollTopDelta }, "*");
+    }, { passive: false });
+
+    function endGesture() {
+      if (lockedMode === "y" && Math.abs(vScrollTop) > 0.05) {
+        const capped = Math.max(-5.5, Math.min(5.5, vScrollTop));
+        parent.postMessage({ scrollTopVelocity: capped }, "*");
+      }
+      lockedMode = null;
+      vScrollTop = 0;
+    }
+
+    window.addEventListener("touchend", endGesture, { passive: true });
+    window.addEventListener("touchcancel", endGesture, { passive: true });
+    window.addEventListener("wheel", (e) => {
+      if (isVerticallyScrollable()) return;
+      parent.postMessage({ scrollTopDelta: e.deltaY }, "*");
+    }, { passive: true });
+  }
+  enableScrollForwardingToParent();
+
+  // ---------- audio ----------
   let audioCtx = null;
   let masterGain = null;
-  let limiter = null;
-
   const bufferPromiseCache = new Map();
   const activeVoices = new Set();
+  const activeUiAudios = new Set();
+  let synthFallbackWarned = false;
 
   function ensureAudioGraph() {
     if (audioCtx) return audioCtx;
-
     const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) {
-      alert("Your browser doesn’t support Web Audio (required for playback).");
-      return null;
-    }
+    if (!Ctx) return null;
 
     audioCtx = new Ctx();
-
     masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.9;
+    masterGain.gain.value = 0.92;
 
-    limiter = audioCtx.createDynamicsCompressor();
-    limiter.threshold.value = LIMITER_THRESHOLD_DB;
-    limiter.knee.value = 0;
-    limiter.ratio.value = 20;
-    limiter.attack.value = 0.001;
-    limiter.release.value = 0.12;
+    const compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -10;   
+    compressor.knee.value = 12;         
+    compressor.ratio.value = 12;        
+    compressor.attack.value = 0.002;    
+    compressor.release.value = 0.25;
 
-    masterGain.connect(limiter);
-    limiter.connect(audioCtx.destination);
+    masterGain.connect(compressor);
+    compressor.connect(audioCtx.destination);
 
     return audioCtx;
   }
@@ -143,144 +295,6 @@
     return voice;
   }
 
-   let lastHeight = 0;
-
-const ro = new ResizeObserver(entries => {
-  for (const entry of entries) {
-    const height = Math.ceil(entry.contentRect.height);
-
-    if (height !== lastHeight) {
-      parent.postMessage({ iframeHeight: height }, "*");
-      lastHeight = height;
-    }
-  }
-});
-
-// Observe the root layout element
-ro.observe(document.documentElement);
-
-  function gameModeLabel() {
-    switch (keyboardRangeSel.value) {
-      case "1oct-c4": return "1 octave";
-      case "2oct-c3": return "2 octaves";
-      case "3oct-c3": return "3 octaves";
-      case "4oct-c2": return "4 octaves";
-      default: return "Custom";
-    }
-  }
-
-   function postHeightNow() {
-  try {
-    const h = Math.max(
-      document.documentElement.scrollHeight,
-      document.body ? document.body.scrollHeight : 0
-    );
-    parent.postMessage({ iframeHeight: h }, "*");
-  } catch {}
-}
-
-window.addEventListener("load", () => {
-  postHeightNow();
-  setTimeout(postHeightNow, 250);
-  setTimeout(postHeightNow, 1000);
-});
-
-window.addEventListener("orientationchange", () => {
-  setTimeout(postHeightNow, 100);
-  setTimeout(postHeightNow, 500);
-});
-
-  function enableScrollForwardingToParent() {
-  const SCROLL_GAIN = 6.0; // start here; now it should feel normal (try 2.0–3.0)
-
-  const isVerticallyScrollable = () =>
-    document.documentElement.scrollHeight > window.innerHeight + 2;
-
-  const isInteractiveTarget = (t) =>
-    t instanceof Element && !!t.closest("button, a, input, select, textarea, label");
-
-  const isInPianoStrip = (t) =>
-    t instanceof Element && !!t.closest("#mount, .mount, svg, .key");
-
-  let startX = 0;
-  let startY = 0;
-  let lastY = 0;
-  let lockedMode = null;
-
-  let lastMoveTs = 0;
-  let vScrollTop = 0; // px/ms in scrollTop coordinates
-
-  window.addEventListener("touchstart", (e) => {
-    if (!e.touches || e.touches.length !== 1) return;
-    const t = e.target;
-
-    lockedMode = null;
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    lastY = startY;
-
-    lastMoveTs = e.timeStamp || performance.now();
-    vScrollTop = 0;
-
-    if (isInteractiveTarget(t) || isInPianoStrip(t)) lockedMode = "x";
-  }, { passive: true });
-
-  window.addEventListener("touchmove", (e) => {
-    if (!e.touches || e.touches.length !== 1) return;
-    if (isVerticallyScrollable()) return;
-
-    const x = e.touches[0].clientX;
-    const y = e.touches[0].clientY;
-
-    const dx = x - startX;
-    const dy = y - startY;
-
-    if (!lockedMode) {
-      if (Math.abs(dy) > Math.abs(dx) + 4) lockedMode = "y";
-      else if (Math.abs(dx) > Math.abs(dy) + 4) lockedMode = "x";
-      else return;
-    }
-    if (lockedMode !== "y") return;
-
-    const nowTs = e.timeStamp || performance.now();
-    const dt = Math.max(8, nowTs - lastMoveTs);
-    lastMoveTs = nowTs;
-
-    const fingerStep = (y - lastY) * SCROLL_GAIN;
-    lastY = y;
-
-    // Convert finger movement -> scrollTop delta (positive scrollTop means scroll down)
-    const scrollTopDelta = -fingerStep;
-
-    // velocity in scrollTop coords
-    const instV = scrollTopDelta / dt; // px/ms
-    vScrollTop = vScrollTop * 0.75 + instV * 0.25;
-
-    e.preventDefault();
-    parent.postMessage({ scrollTopDelta }, "*");
-  }, { passive: false });
-
-  function endGesture() {
-    if (lockedMode === "y" && Math.abs(vScrollTop) > 0.05) {
-      const capped = Math.max(-5.5, Math.min(5.5, vScrollTop));
-      parent.postMessage({ scrollTopVelocity: capped }, "*");
-    }
-    lockedMode = null;
-    vScrollTop = 0;
-  }
-
-  window.addEventListener("touchend", endGesture, { passive: true });
-  window.addEventListener("touchcancel", endGesture, { passive: true });
-
-  window.addEventListener("wheel", (e) => {
-    if (isVerticallyScrollable()) return;
-    parent.postMessage({ scrollTopDelta: e.deltaY }, "*"); // NOT inverted
-  }, { passive: true });
-}
-
-enableScrollForwardingToParent();
-
-
   function stopAllNotes(fadeSec = STOP_FADE_SEC) {
     const ctx = ensureAudioGraph();
     if (!ctx) return;
@@ -296,6 +310,19 @@ enableScrollForwardingToParent();
         v.src.stop(stopAt + 0.02);
       } catch {}
     }
+    activeVoices.clear();
+  }
+
+  function stopAllUiSounds() {
+    for (const a of Array.from(activeUiAudios)) {
+      try { a.pause(); a.currentTime = 0; } catch {}
+      activeUiAudios.delete(a);
+    }
+  }
+
+  function stopAllAudio() {
+    stopAllNotes(0.04);
+    stopAllUiSounds();
   }
 
   function noteUrl(stem, octaveNum) {
@@ -304,23 +331,58 @@ enableScrollForwardingToParent();
 
   function loadBuffer(url) {
     if (bufferPromiseCache.has(url)) return bufferPromiseCache.get(url);
-
     const p = (async () => {
       const ctx = ensureAudioGraph();
       if (!ctx) return null;
-
       try {
         const res = await fetch(url);
         if (!res.ok) return null;
         const ab = await res.arrayBuffer();
         return await ctx.decodeAudioData(ab);
-      } catch {
-        return null;
-      }
+      } catch { return null; }
     })();
-
     bufferPromiseCache.set(url, p);
     return p;
+  }
+
+  function pitchToFrequency(pitch) {
+    const A4 = pitchFromPcOct(9, 4);
+    return 440 * Math.pow(2, (pitch - A4) / 12);
+  }
+
+  function playSynthToneWindowed(pitch, whenSec, playSec, fadeOutSec, gain = 0.65) {
+    const ctx = ensureAudioGraph();
+    if (!ctx || !masterGain) return null;
+
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(pitchToFrequency(pitch), whenSec);
+
+    const g = ctx.createGain();
+    const safeGain = Math.max(0, Number.isFinite(gain) ? gain : 0.65);
+    const fadeIn = 0.01;
+    const endAt = whenSec + Math.max(0.05, playSec);
+
+    g.gain.setValueAtTime(0, whenSec);
+    g.gain.linearRampToValueAtTime(safeGain, whenSec + fadeIn);
+    const fade = Math.max(0.015, Number.isFinite(fadeOutSec) ? fadeOutSec : 0.06);
+    const fadeStart = Math.max(whenSec + 0.02, endAt - fade);
+    g.gain.setValueAtTime(safeGain, fadeStart);
+    g.gain.linearRampToValueAtTime(0, endAt);
+
+    osc.connect(g);
+    g.connect(masterGain);
+
+    trackVoice(osc, g, whenSec);
+    osc.start(whenSec);
+    osc.stop(endAt + 0.03);
+    return osc;
+  }
+
+  function maybeWarnSynthFallback(missingUrl) {
+    if (synthFallbackWarned) return;
+    synthFallbackWarned = true;
+    console.warn("Audio sample missing; using synthesized tones instead:", missingUrl);
   }
 
   function playBufferAt(buffer, whenSec, gain = 1) {
@@ -329,7 +391,6 @@ enableScrollForwardingToParent();
 
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-
     const g = ctx.createGain();
     const safeGain = Math.max(0, Number.isFinite(gain) ? gain : 1);
     const fadeIn = 0.004;
@@ -363,17 +424,44 @@ enableScrollForwardingToParent();
 
     const url = noteUrl(stem, oct);
     const buf = await loadBuffer(url);
-    if (!buf) {
-      setResult(`Missing audio: <code>${url}</code>`);
-      return;
-    }
 
     const ctx = ensureAudioGraph();
     if (!ctx) return;
 
+    stopAllAudio(); // Ensures that old pitches stop before the new one starts
+
+    if (!buf) {
+      maybeWarnSynthFallback(url);
+      playSynthToneWindowed(pitch, ctx.currentTime, 0.85, 0.08, gain * 0.7);
+      return;
+    }
     playBufferAt(buf, ctx.currentTime, gain);
   }
 
+  async function playUiSound(filename) {
+    try {
+      stopAllAudio(); // Cut off everything else before a UI sound
+      
+      const url = `${AUDIO_DIR}/${filename}`;
+      const buffer = await loadBuffer(url);
+      if (!buffer) return;
+      const ctx = ensureAudioGraph();
+      if (!ctx) return;
+      
+      const when = ctx.currentTime;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(2.0, when);
+
+      src.connect(g);
+      g.connect(masterGain);
+      trackVoice(src, g, when);
+      src.start(when);
+    } catch (e) { console.error("UI Sound error:", e); }
+  }
+
+  // ---------- game logic ----------
   function randomInt(min, max) {
     const a = Math.ceil(min);
     const b = Math.floor(max);
@@ -400,23 +488,31 @@ enableScrollForwardingToParent();
     return Math.max(score.longestStored, score.streak);
   }
 
- function renderScore() {
-  const items = [
-    ["Questions asked", score.asked],
-    ["Answers correct", score.correct],
-    ["Correct in a row", score.streak],
-    ["Longest correct streak", displayLongest()],
-    ["Percentage correct", `${scorePercent()}%`],
-  ];
+  function gameModeLabel() {
+    return KEYBOARD_PRESETS[currentRangeMode]?.label || "Custom";
+  }
 
-  scoreOut.innerHTML =
-    `<div class="scoreGrid">` +
-    items.map(([k, v]) =>
-      `<div class="scoreItem"><span class="scoreK">${k}</span><span class="scoreV">${v}</span></div>`
-    ).join("") +
-    `</div>`;
-}
+  function updateScoreMetaText() {
+    const metaText = `Mode: ${gameModeLabel()}`;
+    if (scoreMeta) scoreMeta.textContent = metaText;
+    if (modalScoreMeta) modalScoreMeta.textContent = metaText;
+  }
 
+  function renderScore() {
+    const items = [
+      ["Questions asked", score.asked],
+      ["Answers correct", score.correct],
+      ["Correct in a row", score.streak],
+      ["Longest correct streak", displayLongest()],
+      ["Percentage correct", `${scorePercent()}%`],
+    ];
+
+    scoreOut.innerHTML = items.map(([k, v]) =>
+        `<div class="scoreItem"><span class="scoreK">${k}</span><span class="scoreV">${v}</span></div>`
+    ).join("");
+    
+    updateScoreMetaText();
+  }
 
   function setResult(html) { feedbackOut.innerHTML = html || ""; }
 
@@ -454,15 +550,89 @@ enableScrollForwardingToParent();
     return `${PC_NAMES_SHARP[pc]}${oct} / ${PC_NAMES_FLAT[pc]}${oct}`;
   }
 
-  function updateControlsEnabled() {
-    replayBtn.disabled = !started || targetPitch == null;
-    nextBtn.disabled = !started || !awaitingNext;
-    submitBtn.disabled = !started || awaitingNext || pickedPitch == null || targetPitch == null;
+  function updateBeginButton() {
+    beginBtn.textContent = started ? "End / Restart Game" : "Begin Game";
+    beginBtn.classList.toggle("pulse", !started);
+    beginBtn.classList.toggle("primary", !started);
+    beginBtn.classList.toggle("isRestart", started);
   }
 
-  function updateBeginButton() {
-    beginBtn.textContent = started ? "Restart Game" : "Begin Game";
-    beginBtn.classList.toggle("pulse", !started);
+  function updateControlsEnabled() {
+    const isModalOpen = isVisible(introModal) || isVisible(settingsModal) || isVisible(infoModal) || isVisible(scoreModal) || isVisible(streakModal);
+
+    if (replayBtn) replayBtn.disabled = !started || targetPitch == null || isModalOpen;
+    
+    const canNext = started && awaitingNext && !isModalOpen;
+    if (nextBtn) {
+      nextBtn.disabled = !canNext;
+      nextBtn.classList.toggle("nextReady", canNext);
+    }
+    
+    const canSubmit = started && !awaitingNext && pickedPitch != null && targetPitch != null && !isModalOpen;
+    if (submitBtn) {
+      submitBtn.disabled = !canSubmit;
+      submitBtn.classList.toggle("pulse", canSubmit);
+    }
+    
+    if (beginBtn) beginBtn.disabled = isModalOpen;
+    if (downloadScoreBtn) downloadScoreBtn.disabled = isModalOpen || score.asked === 0;
+  }
+
+  async function startGame() {
+    await resumeAudioIfNeeded();
+    stopAllAudio();
+    clearAllHighlights();
+    
+    started = true;
+    pickedPitch = null;
+    awaitingNext = false;
+    
+    score.asked = 0;
+    score.correct = 0;
+    score.streak = 0;
+    score.longestStored = 0;
+    
+    renderScore();
+    updateBeginButton();
+    updateControlsEnabled();
+    
+    await startNewQuestion({ autoplay: true });
+  }
+
+  function returnToStartScreen({ openIntro = false } = {}) {
+    stopAllAudio();
+    clearAllHighlights();
+
+    started = false;
+    awaitingNext = false;
+    pickedPitch = null;
+    targetPitch = null;
+    lastTargetPitch = null;
+
+    score.asked = 0;
+    score.correct = 0;
+    score.streak = 0;
+    score.longestStored = 0;
+    
+    renderScore();
+    updateBeginButton();
+    
+    if (openIntro) {
+      setResult("Press <strong>Begin Game</strong> to start.");
+      if (actionHint) actionHint.innerHTML = "";
+      updateControlsEnabled();
+      
+      openModal(introModal);
+      try { introBeginBtn.focus(); } catch {}
+    } else {
+      // Re-trigger game immediately if requested to bypass intro
+      setResult("");
+      if (actionHint) actionHint.innerHTML = "Tip: press <strong>R</strong> to replay, <strong>Space</strong>/<strong>Enter</strong> to submit.";
+      started = true;
+      updateBeginButton();
+      updateControlsEnabled();
+      startNewQuestion({ autoplay: true });
+    }
   }
 
   async function startNewQuestion({ autoplay = true } = {}) {
@@ -480,21 +650,17 @@ enableScrollForwardingToParent();
   
     if (autoplay && targetPitch != null) {
       setResult("Which pitch was that? Press <strong>R</strong> or <strong>Replay Note</strong> to hear again! 🔉");
-      await new Promise(requestAnimationFrame); // lets the browser paint the text first
-      stopAllNotes(0.2);
+      await new Promise(requestAnimationFrame); 
       await playPitch(targetPitch, 1);
     } else {
       setResult("Which pitch was that? Press <strong>R</strong> or <strong>Replay Note</strong> to hear again! 🔉");
     }
     
     updateControlsEnabled();
-    
   }
-  
 
   async function replayTarget() {
     if (!started || targetPitch == null) return;
-    stopAllNotes(0.2);
     await playPitch(targetPitch, 1);
   }
 
@@ -507,7 +673,7 @@ enableScrollForwardingToParent();
   }
 
   async function handleKeyClick(keyEl) {
-    if (!started) return;
+    if (!started || awaitingNext) return;
 
     const pitch = Number(keyEl.getAttribute("data-abs"));
     if (!Number.isFinite(pitch)) return;
@@ -526,20 +692,54 @@ enableScrollForwardingToParent();
     await playPitch(pitch, 0.95);
   }
 
-  function showPopup(title, message, { showDownload = false } = {}) {
-    modalTitle.textContent = title;
-    modalBody.textContent = message;
-    modalDownload.classList.toggle("hidden", !showDownload);
-    streakModal.classList.remove("hidden");
-    modalClose.focus();
+  // Modals framework
+  let lastFocusEl = null;
+  function openModal(modalEl) {
+    lastFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    modalEl.classList.remove("hidden");
+    postHeightNow();
+    updateControlsEnabled();
   }
 
-  function hidePopup() { streakModal.classList.add("hidden"); }
+  function closeModal(modalEl) {
+    modalEl.classList.add("hidden");
+    postHeightNow();
+    updateControlsEnabled();
+    if (lastFocusEl) {
+      try { lastFocusEl.focus(); } catch {}
+    }
+  }
+
+  function isVisible(modalEl) { return !modalEl.classList.contains("hidden"); }
+
+  function showRecordPopup(title, message, { showDownload = false } = {}) {
+    if (!streakModal || !modalTitleRecord || !modalBodyRecord || !modalDownloadRecord || !modalCloseRecord) return;
+    modalTitleRecord.textContent = title;
+    modalBodyRecord.textContent = message;
+    modalDownloadRecord.classList.toggle("hidden", !showDownload);
+    openModal(streakModal);
+    modalCloseRecord.focus();
+  }
+
+  let scoreModalContinueCallback = null;
+  function showScoreModal(onContinue) {
+    scoreModalContinueCallback = onContinue;
+    
+    if ($("modalAsked")) $("modalAsked").textContent = score.asked;
+    if ($("modalCorrect")) $("modalCorrect").textContent = score.correct;
+    if ($("modalStreak")) $("modalStreak").textContent = score.streak;
+    if ($("modalLongest")) $("modalLongest").textContent = displayLongest();
+    if ($("modalPercent")) $("modalPercent").textContent = `${scorePercent()}%`;
+    
+    updateScoreMetaText();
+    openModal(scoreModal);
+    try { scoreModalContinueBtn.focus(); } catch {}
+  }
 
   function considerStreakForLongestOnFail(prevStreak) {
     if (prevStreak > score.longestStored) {
       score.longestStored = prevStreak;
-      showPopup(
+      showRecordPopup(
         "New Longest Streak!",
         `New Longest Streak! That's ${prevStreak} correct in a row!`,
         { showDownload: true }
@@ -550,14 +750,16 @@ enableScrollForwardingToParent();
   async function submitAnswer() {
     if (!started || targetPitch == null || pickedPitch == null) return;
 
+    stopAllAudio(); // Stop target pitch & preview immediately upon submission
+
     score.asked += 1;
     renderScore();
 
     const isCorrect = pickedPitch === targetPitch;
-
     clearAllHighlights();
 
     if (isCorrect) {
+      setTimeout(() => playUiSound(UI_SND_CORRECT), 20); // Small timeout allows full sound clearance
       score.correct += 1;
       score.streak += 1;
       renderScore();
@@ -567,18 +769,16 @@ enableScrollForwardingToParent();
       showKeyCorrect(pickedPitch);
 
       pickedPitch = null;
-      updateControlsEnabled();
-
       awaitingNext = true;
+      
       updateControlsEnabled();
       if (actionHint) actionHint.innerHTML = "Correct! Press <strong>Next</strong> (or <strong>Space</strong>) for the next note.";
-
       return;
     }
 
+    playUiSound(UI_SND_INCORRECT);
     const prevStreak = score.streak;
     score.streak = 0;
-    considerStreakForLongestOnFail(prevStreak);
 
     const noteName = pitchLabel(targetPitch);
     setResult(`Incorrect ❌ The note played was <strong>${noteName}</strong>.`);
@@ -589,90 +789,248 @@ enableScrollForwardingToParent();
     pickedPitch = null;
     awaitingNext = true;
     renderScore();
+
+    considerStreakForLongestOnFail(prevStreak);
     updateControlsEnabled();
     if (actionHint) actionHint.innerHTML = "Press <strong>Next</strong> (or <strong>Space</strong>) for the next note.";
   }
 
-  function resetScoreAndRestart() {
-    stopAllNotes();
-    clearAllHighlights();
-
-    score.asked = 0;
-    score.correct = 0;
-    score.streak = 0;
-    score.longestStored = 0;
-
-    pickedPitch = null;
-    awaitingNext = false;
-    targetPitch = null;
-    lastTargetPitch = null;
-
-    renderScore();
-    updateControlsEnabled();
-    setResult("");
-
-    startNewQuestion({ autoplay: true });
-  }
-
-    async function goNext() {
+  async function goNext() {
     if (!started || !awaitingNext) return;
     setResult("");
+    if (actionHint) actionHint.innerHTML = "Tip: press <strong>R</strong> to replay, <strong>Space</strong>/<strong>Enter</strong> to submit.";
     awaitingNext = false;
+    stopAllAudio();
     updateControlsEnabled();
     await startNewQuestion({ autoplay: true });
   }
 
-async function beginGame() {
-    await resumeAudioIfNeeded();
-    started = true;
-    updateBeginButton();
-
-    setResult("");
-    score.asked = 0;
-    score.correct = 0;
-    score.streak = 0;
-    score.longestStored = 0;
-    renderScore();
-
-    awaitingNext = false;
-    await startNewQuestion({ autoplay: true });
+  // Settings syncing logic
+  function isSettingsDirty() {
+    return settingsRangeSelect.value !== currentRangeMode;
+  }
+  
+  function updateSettingsDirtyUi() {
+    const dirty = isSettingsDirty();
+    if (settingsRestartBtn) {
+      settingsRestartBtn.disabled = !dirty;
+      settingsRestartBtn.classList.toggle("is-disabled", !dirty);
+    }
+  }
+  
+  function applyRangeMode(newMode) {
+    currentRangeMode = newMode;
+    initKeyboard();
+    updateScoreMetaText();
   }
 
-  function restartGame() {
-    resetScoreAndRestart();
+  // Name input sync
+  function loadInitialName() {
+    const saved = localStorage.getItem(LS_KEY_NAME);
+    const v = String(saved || "").trim();
+    return v.slice(0, 32);
   }
 
-// ---------- PNG downloads ----------
+  function saveName(name) { try { localStorage.setItem(LS_KEY_NAME, String(name || "").trim().slice(0, 32)); } catch {} }
 
-  function downloadBlob(blob, filename) {
-    const a = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
+  function syncNames(val) {
+    if (playerNameInput && playerNameInput.value !== val) playerNameInput.value = val;
+    if (modalPlayerNameInput && modalPlayerNameInput.value !== val) modalPlayerNameInput.value = val;
+  }
+  if (playerNameInput) playerNameInput.addEventListener("input", (e) => syncNames(e.target.value));
+  if (modalPlayerNameInput) modalPlayerNameInput.addEventListener("input", (e) => syncNames(e.target.value));
+
+
+  // ---------- PNG downloads ----------
+  async function loadImage(src) {
+    return await new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+  }
+  
+  function drawImageContain(ctx, img, x, y, w, h) {
+    const iw = img.naturalWidth || img.width || 1;
+    const ih = img.naturalHeight || img.height || 1;
+    const r = Math.min(w / iw, h / ih);
+    const dw = Math.max(1, iw * r);
+    const dh = Math.max(1, ih * r);
+    const dx = x + (w - dw) / 2;
+    const dy = y + (h - dh) / 2;
+    ctx.drawImage(img, dx, dy, dw, dh);
+    return { w: dw, h: dh, x: dx, y: dy };
   }
 
-  function canvasToPngBlob(canvas) {
-    return new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/png"));
+  function drawRoundRect(ctx, x, y, w, h, r) {
+    const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
   }
 
-  function drawCardBase(ctx, w, h) {
+  function sanitizeFilenamePart(s) {
+    const v = String(s || "").trim().replace(/\s+/g, "_");
+    const cleaned = v.replace(/[^a-zA-Z0-9_\-]+/g, "");
+    return cleaned.slice(0, 32) || "";
+  }
+  
+  function safeText(s) { return String(s || "").replace(/[\u0000-\u001f\u007f]/g, "").trim(); }
+
+  async function downloadScorecardPng(nameInputEl) {
+    const LAYOUT = {
+      gapAfterImage: 32,           
+      gapAfterUrl: 36,             
+      gapAfterTitle: 30,           
+      gapAfterMeta: 28,            
+      gapAfterName: 22,            
+      gapNoNameCompensation: 12,   
+      mainGridRowGap: 14,          
+    };
+
+    const name = safeText(nameInputEl?.value);
+    if (nameInputEl) saveName(name);
+
+    const W = 720;
+    const rowsCount = 5;
+    const rowH = 58;
+    const baseContentH = 340; 
+    const H = baseContentH + (rowsCount * (rowH + LAYOUT.mainGridRowGap)) + 80; 
+    
+    const dpr = Math.max(1, Math.floor((window.devicePixelRatio || 1) * 100) / 100);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.scale(dpr, dpr);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, H);
+
+    const pad = 34;
+    const cardX = pad;
+    const cardY = pad;
+    const cardW = W - pad * 2;
+    const cardH = H - pad * 2;
+
+    ctx.fillStyle = "#f9f9f9";
+    drawRoundRect(ctx, cardX, cardY, cardW, cardH, 18);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(0,0,0,0.18)";
+    ctx.lineWidth = 1;
+    drawRoundRect(ctx, cardX, cardY, cardW, cardH, 18);
+    ctx.stroke();
+
+    const titleSrc = titleImgWide?.getAttribute("src") || "images/title.png";
+    const titleImg = await loadImage(titleSrc);
+
+    let yCursor = cardY + 26;
+
+    if (titleImg) {
+      const imgMaxW = Math.min(520, cardW - 40);
+      const imgMaxH = 92;
+      drawImageContain(ctx, titleImg, (W - imgMaxW) / 2, yCursor, imgMaxW, imgMaxH);
+      yCursor += imgMaxH + LAYOUT.gapAfterImage;
+    }
+
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.font = "800 18px Arial, Helvetica, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("www.eartraininglab.com", W / 2, yCursor);
+    yCursor += LAYOUT.gapAfterUrl;
+
+    ctx.fillStyle = "#111";
+    ctx.textAlign = "center";
+    ctx.font = "700 26px Arial, Helvetica, sans-serif";
+    ctx.fillText("Score Card", W / 2, yCursor);
+    yCursor += LAYOUT.gapAfterTitle;
+
+    ctx.font = "800 18px Arial, Helvetica, sans-serif";
+    ctx.fillStyle = "rgba(0,0,0,0.70)";
+    ctx.fillText(`Mode: ${gameModeLabel()}`, W / 2, yCursor);
+    yCursor += LAYOUT.gapAfterMeta;
+
+    if (name) {
+      ctx.fillText(`Name: ${name}`, W / 2, yCursor);
+      yCursor += LAYOUT.gapAfterName;
+    } else {
+      yCursor += LAYOUT.gapNoNameCompensation; 
+    }
+
+    ctx.fillStyle = "#111";
+    ctx.textAlign = "left";
+
+    const rowX = cardX + 26;
+    const rowW = cardW - 52;
+    
+    const rows = [
+      ["Questions asked", String(score.asked)],
+      ["Answers correct", String(score.correct)],
+      ["Correct in a row", String(score.streak)],
+      ["Longest correct streak", String(displayLongest())],
+      ["Percentage correct", `${scorePercent()}%`],
+    ];
+
+    for (const [k, v] of rows) {
+      ctx.fillStyle = "#ffffff";
+      drawRoundRect(ctx, rowX, yCursor, rowW, rowH, 14);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.16)";
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(0,0,0,0.70)";
+      ctx.font = "900 18px Arial, Helvetica, sans-serif";
+      ctx.fillText(k, rowX + 16, yCursor + 33);
+
+      ctx.fillStyle = "#111";
+      ctx.font = "900 22px Arial, Helvetica, sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillText(v, rowX + rowW - 16, yCursor + 37);
+      ctx.textAlign = "left";
+
+      yCursor += rowH + LAYOUT.mainGridRowGap;
+    }
+
+    ctx.textAlign = "center";
+    ctx.font = "800 14px Arial, Helvetica, sans-serif";
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillText("Match The Pitch! - www.eartraininglab.com", W / 2, cardY + cardH - 24);
+
+    const fileBase = name ? `${sanitizeFilenamePart(name)}_scorecard` : "scorecard";
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${fileBase}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, "image/png");
+  }
+
+  function drawCardBaseOld(ctx, w, h) {
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = "#fbfbfc";
     ctx.fillRect(0, 0, w, h);
-
     ctx.strokeStyle = "rgba(0,0,0,0.12)";
     ctx.lineWidth = 6;
     ctx.strokeRect(8, 8, w - 16, h - 16);
-
     ctx.fillStyle = "#111";
     ctx.fillRect(8, 8, w - 16, 74);
   }
 
-  function drawWrappedText(ctx, text, x, y, maxWidth, lineHeight) {
+  function drawWrappedTextOld(ctx, text, x, y, maxWidth, lineHeight) {
     const words = String(text).split(/\s+/);
     let line = "";
     for (const word of words) {
@@ -688,73 +1046,6 @@ async function beginGame() {
     if (line) ctx.fillText(line, x, y);
   }
 
-  function getPlayerName() {
-    const prev = localStorage.getItem("pm_player_name") || "";
-    const name = window.prompt("Enter your name for the score card:", prev) ?? "";
-    const trimmed = String(name).trim();
-    if (trimmed) localStorage.setItem("pm_player_name", trimmed);
-    return trimmed || "Player";
-  }
-
-  async function onDownloadScoreCard() {
-    const name = getPlayerName();
-    await downloadScoreCardPng(name);
-  }
-
-  async function onDownloadRecord() {
-    const name = getPlayerName();
-    const v = score.longestStored || displayLongest();
-    await downloadRecordPng(v, name);
-  }
-
-  async function downloadScoreCardPng(playerName) {
-    const w = 560;
-    const h = 500;
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    drawCardBase(ctx, w, h);
-
-    ctx.fillStyle = "#fff";
-    ctx.font = "900 30px Arial";
-    ctx.fillText("Match The Pitch! — Scorecard", 28, 56);
-
-    const bodyX = 28;
-    const bodyY = 130;
-
-    ctx.fillStyle = "#111";
-    ctx.font = "900 22px Arial";
-    ctx.fillText("Summary", bodyX, bodyY);
-
-    ctx.font = "700 20px Arial";
-    const lines = [
-      `Name: ${playerName}`,
-      `Game mode: ${gameModeLabel()}`,
-      `Questions asked: ${score.asked}`,
-      `Answers correct: ${score.correct}`,
-      `Correct in a row: ${score.streak}`,
-      `Longest correct streak: ${displayLongest()}`,
-      `Percentage correct: ${scorePercent()}%`,
-    ];
-
-    let y = bodyY + 44;
-    for (const ln of lines) {
-      ctx.fillText(ln, bodyX, y);
-      y += 34;
-    }
-
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
-    ctx.font = "700 16px Arial";
-    ctx.fillText("Downloaded from www.eartraininglab.com 🎶", bodyX, h - 36);
-
-    const blob = await canvasToPngBlob(canvas);
-    if (blob) downloadBlob(blob, "Match The Pitch Scorecard.png");
-  }
-
   async function downloadRecordPng(streakValue, playerName) {
     const w = 980;
     const h = 420;
@@ -765,7 +1056,7 @@ async function beginGame() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    drawCardBase(ctx, w, h);
+    drawCardBaseOld(ctx, w, h);
 
     ctx.fillStyle = "#fff";
     ctx.font = "900 30px Arial";
@@ -778,18 +1069,26 @@ async function beginGame() {
     ctx.font = "700 22px Arial";
     ctx.fillStyle = "#111";
     const msg = `${playerName} just scored ${streakValue} correct answers in a row on the Match The Pitch! game 🎉🎶🥳`;
-    drawWrappedText(ctx, msg, 28, 200, w - 56, 34);
+    drawWrappedTextOld(ctx, msg, 28, 200, w - 56, 34);
 
     ctx.fillStyle = "rgba(0,0,0,0.65)";
     ctx.font = "700 16px Arial";
     ctx.fillText("Downloaded from www.eartraininglab.com 🎶", 28, h - 36);
 
-    const blob = await canvasToPngBlob(canvas);
-    if (blob) downloadBlob(blob, "Match The Pitch Scorecard.png");
+    canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "Match The Pitch Record.png";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }, "image/png");
   }
 
   // ---------- Keyboard SVG ----------
-
   const SVG_NS = "http://www.w3.org/2000/svg";
 
   function el(tag, attrs = {}, children = []) {
@@ -854,6 +1153,12 @@ async function beginGame() {
     5: ["A#", "Bb", 10],
   };
 
+  function cloneShapeForOverlay(shape) {
+    const overlay = shape.cloneNode(true);
+    overlay.classList.add("hlOverlay");
+    return overlay;
+  }
+
   function makeWhiteKey(x, y, w, h, label, pc, pitch, roundLeft, roundRight, octaveNum) {
     const shape = (roundLeft || roundRight)
       ? el("path", { d: outerRoundedWhitePath(x, y, w, h, WHITE_CORNER_R, roundLeft) })
@@ -905,14 +1210,13 @@ async function beginGame() {
       preserveAspectRatio: "xMidYMid meet",
     });
 
-    // Responsive sizing: shrink to fit container, but never upscale beyond natural width.
+    s.style.width = `${outerW}px`;
     s.style.width = "100%";
-    s.style.maxWidth = `${outerW}px`;
     s.style.height = "auto";
 
     const style = el("style");
     style.textContent = `
-      :root { --hlL:${highlightColor}; --hlTextL:#ffffff; --correct:${CORRECT_COLOR}; --wrong:${WRONG_COLOR}; }
+      :root { --hlL:${HIGHLIGHT_COLOR}; --hlTextL:#ffffff; --correct:${CORRECT_COLOR}; --wrong:${WRONG_COLOR}; }
 
       @keyframes keyPulse {
         0%   { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
@@ -953,8 +1257,8 @@ async function beginGame() {
     ]);
 
     const hlBlackGradL = el("linearGradient", { id: "hlBlackGradL", x1: "0", y1: "0", x2: "0", y2: "1" }, [
-      el("stop", { offset: "0%", "stop-color": highlightColor }),
-      el("stop", { offset: "100%", "stop-color": darken(highlightColor, 0.45) }),
+      el("stop", { offset: "0%", "stop-color": HIGHLIGHT_COLOR }),
+      el("stop", { offset: "100%", "stop-color": darken(HIGHLIGHT_COLOR, 0.45) }),
     ]);
 
     const hlBlackCorrect = el("linearGradient", { id: "hlBlackCorrect", x1: "0", y1: "0", x2: "0", y2: "1" }, [
@@ -1028,7 +1332,7 @@ async function beginGame() {
   }
 
   function initKeyboard() {
-    const preset = KEYBOARD_PRESETS[keyboardRangeSel.value] || KEYBOARD_PRESETS["4oct-c2"];
+    const preset = KEYBOARD_PRESETS[currentRangeMode] || KEYBOARD_PRESETS["2oct-c3"];
 
     mount.innerHTML = "";
     pitchToKey.clear();
@@ -1052,52 +1356,166 @@ async function beginGame() {
         handleKeyClick(g);
       });
     });
-
-    applyHighlightColor(highlightColor);
   }
 
-  function applyHighlightColor(hex) {
-    highlightColor = hex;
-    document.documentElement.style.setProperty("--pulseColor", highlightColor);
-    document.documentElement.style.setProperty("--pulseRGBA", hexToRgba(highlightColor, 0.28));
-
-    highlightColorInput.value = highlightColor;
-
-    if (!svg) return;
-    svg.style.setProperty("--hlL", highlightColor);
-
-    const grad = svg.querySelector("#hlBlackGradL");
-    if (grad) {
-      const stops = grad.querySelectorAll("stop");
-      if (stops[0]) stops[0].setAttribute("stop-color", highlightColor);
-      if (stops[1]) stops[1].setAttribute("stop-color", darken(highlightColor, 0.45));
-    }
-  }
 
   // ---------- Events ----------
 
   function bind() {
+
+    // Intro modal
+    function handleIntroContinue() {
+      playUiSound(UI_SND_SELECT);
+      const newMode = String(introRangeSelect.value || "2oct-c3");
+      applyRangeMode(newMode);
+      if (settingsRangeSelect) settingsRangeSelect.value = newMode;
+      
+      closeModal(introModal);
+      setResult("Press <strong>Begin Game</strong> to start.");
+      try { beginBtn.focus(); } catch {}
+    }
+    introBeginBtn.addEventListener("click", handleIntroContinue);
+    
+    // Settings modal
+    settingsBtn.addEventListener("click", () => {
+        playUiSound(UI_SND_SELECT);
+        stopAllAudio();
+        if (settingsRangeSelect) settingsRangeSelect.value = currentRangeMode;
+        openModal(settingsModal);
+        updateSettingsDirtyUi();
+        try { settingsRangeSelect.focus(); } catch {}
+    });
+    
+    settingsCancelBtn.addEventListener("click", () => {
+        playUiSound(UI_SND_BACK);
+        if (settingsRangeSelect) settingsRangeSelect.value = currentRangeMode;
+        updateSettingsDirtyUi();
+        closeModal(settingsModal);
+    });
+    
+    settingsRangeSelect.addEventListener("change", updateSettingsDirtyUi);
+    
+    settingsRestartBtn.addEventListener("click", () => {
+      if (settingsRestartBtn.disabled) return;
+      playUiSound(UI_SND_SELECT);
+      const newMode = String(settingsRangeSelect.value || "2oct-c3");
+      
+      closeModal(settingsModal);
+
+      showScoreModal(() => {
+        applyRangeMode(newMode);
+        if (introRangeSelect) introRangeSelect.value = newMode;
+        returnToStartScreen({ openIntro: false });
+      });
+    });
+
+    // Info Modal
+    infoBtn.addEventListener("click", () => {
+        playUiSound(UI_SND_SELECT);
+        stopAllAudio();
+        openModal(infoModal);
+        try { infoClose.focus(); } catch {}
+    });
+
+    infoClose.addEventListener("click", () => {
+        playUiSound(UI_SND_BACK);
+        closeModal(infoModal);
+    });
+
+    // Score modal
+    scoreModalContinueBtn.addEventListener("click", () => {
+      playUiSound(UI_SND_SELECT);
+      closeModal(scoreModal);
+      if (scoreModalContinueCallback) scoreModalContinueCallback();
+    });
+
     beginBtn.addEventListener("click", async () => {
-      if (!started) await beginGame();
-      else restartGame();
+      if (!started) {
+        if (introModal && !introModal.classList.contains("hidden")) closeModal(introModal);
+        await startGame();
+      } else {
+        showScoreModal(() => {
+          returnToStartScreen({ openIntro: true });
+        });
+      }
     });
 
     replayBtn.addEventListener("click", replayTarget);
     submitBtn.addEventListener("click", submitAnswer);
     nextBtn.addEventListener("click", goNext);
-    downloadScoreBtn.addEventListener("click", onDownloadScoreCard);
 
-    modalClose?.addEventListener("click", hidePopup);
-    streakModal?.addEventListener("click", (e) => { if (e.target === streakModal) hidePopup(); });
-    modalDownload?.addEventListener("click", onDownloadRecord);
-
-    keyboardRangeSel.addEventListener("change", () => {
-      initKeyboard();
-      if (started) startNewQuestion({ autoplay: true });
+    downloadScoreBtn.addEventListener("click", () => {
+      playUiSound(UI_SND_SELECT);
+      downloadScorecardPng(playerNameInput);
+    });
+    modalDownloadScorecardBtn.addEventListener("click", () => {
+      playUiSound(UI_SND_SELECT);
+      downloadScorecardPng(modalPlayerNameInput);
+    });
+    
+    modalDownloadRecord.addEventListener("click", () => {
+        const name = safeText(playerNameInput.value) || "Player";
+        downloadRecordPng(score.longestStored || displayLongest(), name);
     });
 
-    highlightColorInput.addEventListener("change", () => applyHighlightColor(highlightColorInput.value));
+    // Modals closing overrides
+    modalCloseRecord?.addEventListener("click", () => {
+        playUiSound(UI_SND_BACK);
+        closeModal(streakModal);
+    });
+    streakModal?.addEventListener("click", (e) => { 
+        if (e.target === streakModal) {
+            playUiSound(UI_SND_BACK);
+            closeModal(streakModal); 
+        }
+    });
+    introModal?.addEventListener("click", (e) => { 
+        if (e.target === introModal) {
+            playUiSound(UI_SND_BACK);
+            closeModal(introModal); 
+        }
+    });
+    settingsModal?.addEventListener("click", (e) => { 
+        if (e.target === settingsModal) {
+            playUiSound(UI_SND_BACK);
+            if (settingsRangeSelect) settingsRangeSelect.value = currentRangeMode;
+            closeModal(settingsModal);
+        }
+    });
+    infoModal?.addEventListener("click", (e) => { 
+        if (e.target === infoModal) {
+            playUiSound(UI_SND_BACK);
+            closeModal(infoModal);
+        }
+    });
+
+    window.addEventListener("resize", () => {
+      updateTitleForWidth();
+    });
+
     document.addEventListener("keydown", async (e) => {
+      if (e.key === "Escape") {
+        if (isVisible(settingsModal)) {
+          playUiSound(UI_SND_BACK);
+          if (settingsRangeSelect) settingsRangeSelect.value = currentRangeMode;
+          closeModal(settingsModal);
+          return;
+        }
+        if (isVisible(infoModal)) {
+          playUiSound(UI_SND_BACK);
+          closeModal(infoModal);
+          return;
+        }
+        if (isVisible(streakModal)) { 
+          playUiSound(UI_SND_BACK);
+          closeModal(streakModal); 
+          return; 
+        }
+        return;
+      }
+
+      if (isVisible(settingsModal) || isVisible(introModal) || isVisible(scoreModal) || isVisible(streakModal) || isVisible(infoModal)) return;
+
       if (!started) return;
 
       if (e.code === "KeyR") {
@@ -1105,30 +1523,53 @@ async function beginGame() {
         return;
       }
 
-      if (e.code === "Space") {
+      if (e.code === "Space" || e.code === "Enter") {
         e.preventDefault();
-        if (awaitingNext) await goNext();
-        else await submitAnswer();
-        return;
-      }
-
-      if (e.code === "Enter") {
-        e.preventDefault();
-        if (awaitingNext) await goNext();
-        else await submitAnswer();
+        
+        // Block submit via keyboard if we are in state where they haven't picked a pitch
+        if (awaitingNext && !nextBtn.disabled) {
+           await goNext();
+        } else if (!awaitingNext && pickedPitch != null && !submitBtn.disabled) {
+           await submitAnswer();
+        }
       }
     });
   }
 
+  function initTitleSwap() {
+    if (!titleWrap || !titleImgWide || !titleImgWrapped) return;
+
+    const tryUpdate = () => updateTitleForWidth();
+
+    if (titleImgWide.complete) tryUpdate();
+    else titleImgWide.addEventListener("load", tryUpdate, { once: true });
+
+    if (titleImgWrapped.complete) tryUpdate();
+    else titleImgWrapped.addEventListener("load", tryUpdate, { once: true });
+
+    const tro = new ResizeObserver(() => updateTitleForWidth());
+    tro.observe(titleWrap);
+  }
+
   function init() {
     bind();
-    initKeyboard();
-    applyHighlightColor(highlightColorInput.value || PRESELECT_COLOR_DEFAULT);
+    initTitleSwap();
+
+    const initialName = loadInitialName();
+    if (playerNameInput) playerNameInput.value = initialName;
+    if (modalPlayerNameInput) modalPlayerNameInput.value = initialName;
+
+    applyRangeMode("2oct-c3");
+
     renderScore();
     updateBeginButton();
     updateControlsEnabled();
-    if (actionHint) actionHint.innerHTML = "Tip: press <strong>R</strong> to replay, <strong>Space</strong>/<strong>Enter</strong> to submit.";
+    updateTitleForWidth();
+
     setResult("Press <strong>Begin Game</strong> to start.");
+
+    openModal(introModal);
+    try { introBeginBtn.focus(); } catch {}
   }
 
   init();
